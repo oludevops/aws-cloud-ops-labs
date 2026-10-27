@@ -16,7 +16,7 @@ Each lab is self-contained, deploys with Terraform, and includes a step-by-step 
 - **Everything as code.** Infrastructure is Terraform; server configuration is versioned SSM documents.
 - **Remote state, shared safely.** State lives in an encrypted, versioned, HTTPS-only S3 bucket with locking. Each lab uses its own state file.
 - **Least privilege and no open doors.** Read-only and guarded roles for people; changes only through the pipeline role; servers reached through Systems Manager, not SSH or RDP.
-- **Explain the why.** Each guide links every step to the operational problem it solves, and ends with a short summary of the approach.
+- **Explain the why.** Each guide links every step to the operational problem it solves.
 
 ## Prerequisites
 

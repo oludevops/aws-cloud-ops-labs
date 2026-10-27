@@ -521,13 +521,3 @@ Then remove the three `[profile drift-*]` blocks from `~/.aws/config`, and the c
 If `destroy` fails on the VPC with a "has dependencies" error, a resource created outside Terraform is still inside it, most likely the scratch security group from 7c. Delete it, then run `destroy` again. That itself is a small lesson in what unmanaged resources cost you.
 
 > In real life, a state bucket is **never** set to `force_destroy`. It gets `lifecycle { prevent_destroy = true }` instead, so Terraform refuses to delete it. The setting here is only to make lab cleanup easy.
-
----
-
-## Summary: the approach in a nutshell
-
-> "I keep Terraform state remote in S3, created by a small bootstrap configuration. The bucket is versioned so I can restore a previous state, encrypted, blocked from public access, HTTPS-only, and limited to the pipeline and a few admins. I use S3-native locking, so two applies can never run at once, and partial backend configuration so each environment points at its own state.
->
-> Drift is when real infrastructure no longer matches the Terraform code and state. I detect it with a scheduled `terraform plan -detailed-exitcode`, which returns 2 when anything differs, and I use CloudTrail to find who changed what. I handle each case on its merits: **revert** unauthorized changes like an SSH rule opened to the internet; **codify** valid emergency fixes, like a log-retention increase, through a pull request; **ignore** attributes that are meant to change at runtime, like autoscaling counts or app-managed flags; and **import** resources created by hand, which also brings them up to our tagging standards.
->
-> To prevent drift, I separate viewing from changing. People and the MSP get read-only or guarded roles; only the pipeline role can change Terraform-managed resources; and an SCP enforces that across accounts, including blocking tag removal so it can't be bypassed. I also keep each resource under one owner, inline security group rules or separate rule resources, never both, so Terraform sees every change. Plan-based detection can't see resources Terraform never knew about, so I pair it with AWS Config and tag audits for unmanaged resources."

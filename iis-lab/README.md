@@ -618,11 +618,3 @@ terraform destroy        # type "yes"
 ```
 
 This removes the server, VPC, IAM role, SSM documents and key pair. Terminating Windows takes a few minutes. The local `iis-lab-key.pem` file is deleted too. The state file stays in the shared S3 bucket, now recording an empty lab, and goes when you destroy the drift lab's bootstrap bucket.
-
----
-
-## Summary: the approach in a nutshell
-
-> "I manage Windows servers through Systems Manager rather than RDP. The servers have no inbound ports; admins use Session Manager for PowerShell, port forwarding to test sites, and Fleet Manager when they need a GUI, with every session logged. I package configuration as custom SSM documents and run them by tag with Run Command, so the same change reaches one server or a whole fleet.
->
-> For IIS troubleshooting, I follow the request path. A 503 means the request never reached the application, so I check the app pool first. If it's stopped, the WAS events in the System log tell me why: 5002 means rapid-fail protection after repeated crashes, and the Application log's .NET 1026 event gives the actual exception; 5021 means the pool's identity is invalid, usually a rotated service-account password, which is why I'd move app pools to gMSAs. A 500.19 is a broken `web.config`, which I'd catch in the pipeline by validating it before deployment. And if a site won't start with 0x800700B7, another site holds its binding. For patching, I use Patch Manager with baselines, patch groups and maintenance windows, scan-only during the day, with compliance reports as audit evidence."
