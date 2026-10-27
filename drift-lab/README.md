@@ -1,27 +1,27 @@
 # Terraform Drift Lab: detect, handle and prevent drift
 
-**Time:** about 75–90 minutes  **Cost:** effectively $0 (VPC, security group, empty log group, one SSM parameter, IAM roles, two small S3 buckets; nothing with an hourly charge)  **Region:** us-east-2 (Ohio)
+**Cost:** effectively $0 (VPC, security group, empty log group, one SSM parameter, IAM roles, two small S3 buckets; nothing with an hourly charge)  **Region:** us-east-2 (Ohio)
 
 ## What you will practise
 
 | Part | Skill | Real-world question it answers |
 |---|---|---|
-| 0 | Create a secure **remote state** bucket | "Where do you keep Terraform state, and how do you protect it?" |
-| 1 | Deploy a baseline and confirm it is clean | "How do you know Terraform matches reality?" |
-| 1b | Inspect remote state: **versioning and locking** | "What stops two people corrupting state at the same time?" |
-| 2 | **Revert** an unauthorized change (SSH opened to the internet) | "What is drift and how do you handle it?" |
-| 3 | Find **who** made the change with CloudTrail | "How do you investigate a manual change?" |
-| 4 | **Codify** a valid emergency fix | "What if the manual change was correct?" |
-| 5 | **Ignore** a setting the app changes on purpose | "How do you avoid false drift alarms?" |
-| 6 | **Import** a resource someone created by hand | "How do you bring click-ops resources under Terraform?" |
-| 7 | **Prevent** drift with read-only and guarded roles | "How do you stop people changing things in the console?" |
-| 8 | **Automate** detection (cron and GitHub Actions) | "How would you detect drift continuously?" |
+| 1 | Create a secure **remote state** bucket | "Where do you keep Terraform state, and how do you protect it?" |
+| 2 | Deploy a baseline and confirm it is clean | "How do you know Terraform matches reality?" |
+| 2b | Inspect remote state: **versioning and locking** | "What stops two people corrupting state at the same time?" |
+| 3 | **Revert** an unauthorized change (SSH opened to the internet) | "What is drift and how do you handle it?" |
+| 4 | Find **who** made the change with CloudTrail | "How do you investigate a manual change?" |
+| 5 | **Codify** a valid emergency fix | "What if the manual change was correct?" |
+| 6 | **Ignore** a setting the app changes on purpose | "How do you avoid false drift alarms?" |
+| 7 | **Import** a resource someone created by hand | "How do you bring click-ops resources under Terraform?" |
+| 8 | **Prevent** drift with read-only and guarded roles | "How do you stop people changing things in the console?" |
+| 9 | **Automate** detection (cron and GitHub Actions) | "How would you detect drift continuously?" |
 
 Each part follows the same pattern: **make a change outside Terraform → see what `terraform plan` says → decide the right response.** That decision is the real skill.
 
 ---
 
-## Part 0: Set up (5 min)
+## Part 1: Set up
 
 Clone the repository on your Linux workstation, then:
 
@@ -36,7 +36,7 @@ aws sts get-caller-identity
 export AWS_REGION=us-east-2
 ```
 
-`get-caller-identity` should show your 12-digit account ID. Note the **profile** you are using (usually `default`); you will need its name in Part 7.
+`get-caller-identity` should show your 12-digit account ID. Note the **profile** you are using (usually `default`); you will need its name in Part 8.
 
 > Terraform 1.10 or later is required, for S3-native state locking. Check with `terraform version`.
 
@@ -55,7 +55,7 @@ Remote state in S3 fixes all four: it's shared, **versioned** (every change kept
 
 Terraform needs a bucket to store state, but something has to create that bucket first. The `bootstrap/` folder solves this: a tiny Terraform configuration with **local** state whose only job is creating the state bucket. You run it once.
 
-### 0a. Create the state bucket
+### 1a. Create the state bucket
 
 ```bash
 terraform -chdir=bootstrap init
@@ -66,7 +66,7 @@ terraform -chdir=bootstrap apply      # type "yes"; creates 7 resources
 
 Open `bootstrap/main.tf` and notice the protections on the bucket: versioning, encryption, public access block, ACLs disabled, a policy refusing non-HTTPS requests, and a lifecycle rule expiring old state versions after 90 days. Together, they are the answer to "how do you protect Terraform state?"
 
-### 0b. Point the lab at the bucket
+### 1b. Point the lab at the bucket
 
 ```bash
 terraform -chdir=bootstrap output -raw backend_config > backend.hcl
@@ -75,11 +75,11 @@ cat backend.hcl
 
 You should see the bucket name and region. Why a separate file? Terraform's `backend` block (in `versions.tf`) **can't use variables**, so account-specific values are passed in at `init` time. This is called **partial configuration**, and it lets the same code use a different state bucket per environment.
 
-> **Already have this lab deployed with local state?** Don't destroy anything. Run `terraform init -migrate-state -backend-config=backend.hcl` instead of the `init` in Part 1, and answer `yes` when Terraform asks to copy your existing state to S3. Then delete the local `terraform.tfstate*` files. Moving a project from local to remote state this way is a common real-world task.
+> **Already have this lab deployed with local state?** Don't destroy anything. Run `terraform init -migrate-state -backend-config=backend.hcl` instead of the `init` in Part 2, and answer `yes` when Terraform asks to copy your existing state to S3. Then delete the local `terraform.tfstate*` files. Moving a project from local to remote state this way is a common real-world task.
 
 ---
 
-## Part 1: Deploy the baseline (5 min)
+## Part 2: Deploy the baseline
 
 ```bash
 terraform init -backend-config=backend.hcl   # connects to the S3 backend and downloads the AWS provider
@@ -102,7 +102,7 @@ Expected: `OK: no drift.` (exit code 0). This is your clean baseline. Every exer
 
 ---
 
-## Part 1b: Look inside remote state, versioning and locking (5 min)
+## Part 2b: Look inside remote state, versioning and locking
 
 ### See the state file in S3
 
@@ -123,7 +123,7 @@ aws s3api list-object-versions --bucket "$STATE_BUCKET" \
   --query 'Versions[].{modified:LastModified,id:VersionId,latest:IsLatest}' --output table
 ```
 
-Right now there's probably just one or two versions. Come back after Part 6 and there will be several. If state were ever corrupted, you'd restore a previous version with `aws s3api copy-object` using its `VersionId`. That's how state recovery works.
+Right now there's probably just one or two versions. Come back after Part 7 and there will be several. If state were ever corrupted, you'd restore a previous version with `aws s3api copy-object` using its `VersionId`. That's how state recovery works.
 
 ### See locking at work
 
@@ -152,11 +152,11 @@ The error shows **who** holds the lock and since when. Now go back to **Terminal
 
 ---
 
-## Part 2: Drift type 1, REVERT an unauthorized change (10 min)
+## Part 3: Drift type 1, REVERT an unauthorized change
 
 **Scenario:** at 2 a.m. someone opened SSH to the whole internet on the web security group "to debug something" and never closed it. That is a security incident waiting to happen.
 
-### 2a. Make the bad change (as your admin user)
+### 3a. Make the bad change (as your admin user)
 
 In the **console**: EC2 → Security Groups → `drift-lab-web` → **Edit inbound rules** → **Add rule**: Type `SSH`, Source `Anywhere-IPv4 (0.0.0.0/0)` → Save.
 
@@ -168,7 +168,7 @@ aws ec2 authorize-security-group-ingress \
   --group-id "$SG_ID" --protocol tcp --port 22 --cidr 0.0.0.0/0
 ```
 
-### 2b. Detect it
+### 3b. Detect it
 
 ```bash
 ./drift-check.sh
@@ -181,7 +181,7 @@ Expected: `DRIFT DETECTED` (exit code 2). Open the saved report and look for two
 
 **Why Terraform noticed:** the rules are written *inline* inside `aws_security_group.web`, so Terraform owns the full rule list. Any extra rule is drift. If the rules were separate `aws_vpc_security_group_ingress_rule` resources, Terraform would only track the rules it created, and this hand-added rule would be invisible. That's the "one resource, one owner" rule from the prep doc in practice.
 
-### 2c. Decide and act
+### 3c. Decide and act
 
 Opening SSH to the world was not authorized, so you **revert** it:
 
@@ -196,7 +196,7 @@ Check the console: the SSH rule is gone.
 
 ---
 
-## Part 3: Find out WHO made the change (5 min)
+## Part 4: Find out WHO made the change
 
 "Revert it" is only half the answer. You also need to find out who did it and why, so it doesn't happen again.
 
@@ -216,11 +216,11 @@ You should see your own username and the time you added the rule. In the console
 
 ---
 
-## Part 4: Drift type 2, CODIFY a valid emergency fix (5 min)
+## Part 5: Drift type 2, CODIFY a valid emergency fix
 
 **Scenario:** during an incident, an engineer couldn't investigate because logs were deleted after 7 days. They raised log retention to 30 days by hand. That was the **right** call. If you blindly run `apply`, you'd put it back to 7 days and undo a good fix.
 
-### 4a. Make the change
+### 5a. Make the change
 
 ```bash
 aws logs put-retention-policy --log-group-name /drift-lab/app --retention-in-days 30
@@ -228,7 +228,7 @@ aws logs put-retention-policy --log-group-name /drift-lab/app --retention-in-day
 
 (Console alternative: CloudWatch → Log groups → `/drift-lab/app` → Actions → Edit retention setting → 1 month.)
 
-### 4b. Detect it
+### 5b. Detect it
 
 ```bash
 ./drift-check.sh
@@ -236,7 +236,7 @@ aws logs put-retention-policy --log-group-name /drift-lab/app --retention-in-day
 
 The plan shows `retention_in_days` changing from **30 back to 7**. Stop here: **don't apply.** Applying would undo the fix.
 
-### 4c. Decide and act: make the code match reality
+### 5c. Decide and act: make the code match reality
 
 Edit `main.tf`, in `aws_cloudwatch_log_group.app`:
 
@@ -257,17 +257,17 @@ In a team, this edit goes through a **pull request** with a link to the incident
 
 ---
 
-## Part 5: Drift type 3, IGNORE a setting that's meant to change (5 min)
+## Part 6: Drift type 3, IGNORE a setting that's meant to change
 
 **Scenario:** the application turns a feature flag on and off at runtime by writing to SSM Parameter Store. Terraform created the parameter, but the **value** belongs to the app. Without special handling, every plan reports drift and every apply resets the flag, which would break the app.
 
-### 5a. The app changes the value
+### 6a. The app changes the value
 
 ```bash
 aws ssm put-parameter --name /drift-lab/feature-flag --value on --overwrite
 ```
 
-### 5b. Detect it
+### 6b. Detect it
 
 ```bash
 ./drift-check.sh
@@ -275,7 +275,7 @@ aws ssm put-parameter --name /drift-lab/feature-flag --value on --overwrite
 
 The plan wants to change the value from `on` back to `off`. This is a **false alarm**: nothing is wrong, but the alert would wake someone up. False alarms train people to ignore drift alerts, which is dangerous.
 
-### 5c. Decide and act: tell Terraform to ignore the value
+### 6c. Decide and act: tell Terraform to ignore the value
 
 In `main.tf`, uncomment the lifecycle block in `aws_ssm_parameter.feature_flag`:
 
@@ -300,13 +300,13 @@ Terraform still manages everything else about the parameter (its name, type and 
 
 ---
 
-## Part 6: Drift type 4, IMPORT a resource created by hand (10 min)
+## Part 7: Drift type 4, IMPORT a resource created by hand
 
 **Scenario:** a team created an S3 bucket in the console for a quick project. It works, people depend on it, and Terraform doesn't know it exists. No tags, no standard settings, no record.
 
 Note: a scheduled `terraform plan` **cannot** see this kind of drift, because Terraform only checks resources it already manages. You find these through AWS Config, Resource Explorer, tag audits (anything missing `ManagedBy`), or Cost Explorer showing untagged spend. Plan-based detection and inventory-based detection complement each other.
 
-### 6a. Create the bucket by hand
+### 7a. Create the bucket by hand
 
 ```bash
 BUCKET=$(terraform output -raw manual_bucket_name)
@@ -315,7 +315,7 @@ aws s3api create-bucket --bucket "$BUCKET" --region us-east-2 \
 aws s3api get-bucket-tagging --bucket "$BUCKET"   # error: no tags at all
 ```
 
-### 6b. Write an import block and the matching resource
+### 7b. Write an import block and the matching resource
 
 Create a new file `import.tf`:
 
@@ -332,7 +332,7 @@ resource "aws_s3_bucket" "manual" {
 }
 ```
 
-### 6c. Plan and apply
+### 7c. Plan and apply
 
 ```bash
 terraform plan
@@ -354,7 +354,7 @@ Once the import has been applied, you can delete the `import { }` block. It has 
 
 ---
 
-## Part 7: PREVENT drift with roles and a guardrail (15 min)
+## Part 8: PREVENT drift with roles and a guardrail
 
 Detection catches drift after it happens. Now block it from happening. `iam.tf` already created three roles:
 
@@ -364,9 +364,9 @@ Detection catches drift after it happens. Now block it from happening. `iam.tf` 
 | `drift-lab-operator` | Powerful day-to-day role | Yes | **No**: PowerUserAccess, but a Deny guardrail blocks anything tagged `ManagedBy=terraform` |
 | `drift-lab-deployer` | The CI/CD pipeline | Yes | **Yes**: the only role exempt from the guardrail |
 
-### 7a. Add CLI profiles for the three roles
+### 8a. Add CLI profiles for the three roles
 
-Append to `~/.aws/config`, replacing `ACCOUNT_ID` with your account number, and `default` with your profile name from Part 0 if it differs:
+Append to `~/.aws/config`, replacing `ACCOUNT_ID` with your account number, and `default` with your profile name from Part 1 if it differs:
 
 ```ini
 [profile drift-readonly]
@@ -395,7 +395,7 @@ aws sts get-caller-identity --profile drift-deployer
 
 Each should show an `assumed-role/...` ARN.
 
-### 7b. Read-only: can look, can't touch
+### 8b. Read-only: can look, can't touch
 
 ```bash
 SG_ID=$(terraform output -raw security_group_id)
@@ -409,7 +409,7 @@ aws ec2 authorize-security-group-ingress --group-id "$SG_ID" \
   --protocol tcp --port 22 --cidr 0.0.0.0/0 --profile drift-readonly
 ```
 
-### 7c. Operator: powerful, but blocked from Terraform-managed resources
+### 8c. Operator: powerful, but blocked from Terraform-managed resources
 
 ```bash
 # Try the same 2 a.m. "quick fix": denied by the guardrail
@@ -438,7 +438,7 @@ aws ec2 authorize-security-group-ingress --group-id "$TEST_SG" \
 aws ec2 delete-security-group --group-id "$TEST_SG" --profile drift-operator
 ```
 
-### 7d. Deployer: the pipeline is allowed
+### 8d. Deployer: the pipeline is allowed
 
 ```bash
 AWS_PROFILE=drift-deployer terraform plan    # works: this is the "pipeline"
@@ -450,7 +450,7 @@ Any change goes through code, a review, and this role. In a real setup, this rol
 
 > Note: the deployer has PowerUserAccess plus **read-only** IAM, so it can plan everything and apply the network, logging and parameter changes, but an apply that changes IAM roles would fail. That's realistic: in many companies IAM changes go through a separate, more tightly controlled pipeline.
 
-### 7e. See it in the console
+### 8e. See it in the console
 
 ```bash
 terraform output -raw console_switch_role_readonly
@@ -463,7 +463,7 @@ Open each link in the browser where you're signed in as your admin user and clic
 
 Switch back to your admin user from the account menu at the top right when you're done.
 
-### 7f. From IAM policy to SCP
+### 8f. From IAM policy to SCP
 
 In this lab the guardrail is an **IAM policy attached to one role**, because SCPs require AWS Organizations. Open `scp-example.json`: it's the same logic written as a **Service Control Policy**. The difference:
 
@@ -474,7 +474,7 @@ It also adds a second rule protecting CloudTrail, so nobody can turn off the aud
 
 ---
 
-## Part 8: AUTOMATE detection (5 min)
+## Part 9: AUTOMATE detection
 
 ### Option A: cron on your workstation
 
@@ -503,7 +503,7 @@ This only works **because state is now remote**: a GitHub runner starts on a fre
 
 ---
 
-## Part 9: Clean up (5 min)
+## Part 10: Clean up
 
 Order matters: destroy the lab **first**, then the state bucket. If you delete the state bucket first, Terraform loses its record of the lab resources and you'd have to delete them by hand.
 

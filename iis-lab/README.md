@@ -1,6 +1,6 @@
 # Windows Server and IIS break/fix, managed entirely through Systems Manager
 
-**Time:** about 2½ hours, including reading  **Cost:** about 7 cents an hour while the server runs (Windows t3.medium, a 50 GB disk and a public IP). Destroy it at the end and the whole lab costs well under a dollar.  **Region:** us-east-2 (Ohio)
+**Cost:** about 7 cents an hour while the server runs (Windows t3.medium, a 50 GB disk and a public IP). Destroy it at the end and the whole lab costs well under a dollar.  **Region:** us-east-2 (Ohio)
 
 **No IIS experience needed.** Part A explains IIS in plain English, comparing each piece to Kubernetes, which you already know. Every command in the lab says what it does and why you're running it. Read Part A before touching anything: the break/fix scenarios only make sense once you know how a request travels through IIS.
 
@@ -10,16 +10,17 @@
 |---|---|---|
 | A | How IIS works, in plain English | "What actually happens when a request reaches IIS?" |
 | B | Just enough PowerShell to read and run the commands | (supports everything else) |
-| 1 | Deploy Windows Server 2022 with **no inbound ports** | "How do you give admins access to servers securely?" |
-| 2 | Install IIS on a fleet with **Run Command** and a custom SSM document | "How do you automate Windows configuration?" |
-| 3 | Connect with **Session Manager**, port forwarding and Fleet Manager RDP | "Do you need RDP or a bastion host?" |
-| 4 | Learn the IIS **troubleshooting toolkit** | "Where do you look when an IIS site fails?" |
-| 5 | Fix five realistic faults | "An IIS site returns 503. What do you check?" |
-| 6 | Scan for missing patches with **Patch Manager** | "How do you patch Windows at scale?" |
+| 1 | Set up: reuse the shared state bucket, install the Session Manager plugin | (prerequisite) |
+| 2 | Deploy Windows Server 2022 with **no inbound ports** | "How do you give admins access to servers securely?" |
+| 3 | Install IIS on a fleet with **Run Command** and a custom SSM document | "How do you automate Windows configuration?" |
+| 4 | Connect with **Session Manager**, port forwarding and Fleet Manager RDP | "Do you need RDP or a bastion host?" |
+| 5 | Learn the IIS **troubleshooting toolkit** | "Where do you look when an IIS site fails?" |
+| 6 | Fix five realistic faults | "An IIS site returns 503. What do you check?" |
+| 7 | Scan for missing patches with **Patch Manager** | "How do you patch Windows at scale?" |
 
 ---
 
-## Part A: IIS in plain English (15 min read)
+## Part A: IIS in plain English
 
 ### What IIS is
 
@@ -90,7 +91,7 @@ Setup builds one site so you have something realistic to break:
 
 ---
 
-## Part B: Just enough PowerShell (5 min read)
+## Part B: Just enough PowerShell
 
 You'll type PowerShell commands on the Windows server. A few ideas make them readable:
 
@@ -106,7 +107,7 @@ You'll type PowerShell commands on the Windows server. A few ideas make them rea
 
 ---
 
-## Part 0: Set up (5 min)
+## Part 1: Set up
 
 From the repository root:
 
@@ -135,7 +136,7 @@ session-manager-plugin --version
 
 ---
 
-## Part 1: Deploy the server (10 min, mostly waiting)
+## Part 2: Deploy the server
 
 ```bash
 terraform init -backend-config=backend.hcl   # connect to the S3 state bucket, download providers
@@ -152,7 +153,7 @@ terraform apply tfplan
   - Its image (AMI) ID is read from a public SSM parameter, `/aws/service/ami-windows-latest/...`. AWS keeps it pointed at the latest patched image, so you never hard-code an AMI ID.
   - `ignore_changes = [ami]` stops Terraform from replacing the server every month when AWS publishes a new image. That's the drift lab's "ignore" pattern: new images are rolled out deliberately, not as a side effect of an unrelated apply.
   - **IMDSv2 required** and an **encrypted gp3 disk**: two baseline security settings auditors check.
-- **A key pair**, used only to unlock the Administrator password for Fleet Manager's remote desktop in Part 3c. No RDP port is opened.
+- **A key pair**, used only to unlock the Administrator password for Fleet Manager's remote desktop in Part 4c. No RDP port is opened.
 - **Two SSM documents**, `IISLab-Setup` and `IISLab-Break` (`ssm-documents.tf`): PowerShell scripts stored in Systems Manager so they can be run on any server by tag. Their code is in the `scripts/` folder if you're curious.
 
 **Wait for the server to register with Systems Manager.** Windows takes 3–5 minutes to boot. This command lists instances tagged `Role=iis-lab` that the agent has registered:
@@ -168,7 +169,7 @@ Repeat until **`Ping` shows `Online`**. That means the agent is connected and th
 
 ---
 
-## Part 2: Install IIS with Run Command (10 min)
+## Part 3: Install IIS with Run Command
 
 ```bash
 ./ssm-run.sh setup
@@ -197,9 +198,9 @@ Alerts API - release v1 Status: healthy Server time (UTC): ... Running as: ...\s
 
 ---
 
-## Part 3: Connect to the server, three ways (15 min)
+## Part 4: Connect to the server, three ways
 
-### 3a. Session Manager: a PowerShell prompt with no open ports
+### 4a. Session Manager: a PowerShell prompt with no open ports
 
 This is how you'll work for the rest of the lab.
 
@@ -211,7 +212,7 @@ terraform output -raw session_manager_url
 
 Open the link and click **Start session**. A PowerShell window opens in your browser.
 
-**Or from your workstation** (needs the plugin from Part 0):
+**Or from your workstation** (needs the plugin from Part 1):
 
 ```bash
 aws ssm start-session --target "$(terraform output -raw instance_id)"
@@ -242,7 +243,7 @@ C:\lab\Test-Site.ps1
 ```
 Requests `http://localhost:8080/` and prints the result: **HTTP 200** and the page text.
 
-### 3b. Port forwarding: see the site in your own browser
+### 4b. Port forwarding: see the site in your own browser
 
 Port forwarding sends traffic from a port on your workstation, through Systems Manager, to a port on the server. Like an `ssh -L` tunnel, but with no SSH and no open ports.
 
@@ -256,7 +257,7 @@ aws ssm start-session --target "$(terraform output -raw instance_id)" \
 
 `portNumber` is the port on the server (the Alerts site); `localPortNumber` is the port on your workstation. Leave it running. VS Code's Remote-SSH then notices port 8080 on your workstation and forwards it to your laptop; check the **Ports** tab at the bottom of VS Code. Open `http://localhost:8080` in your browser to see the Alerts page. Press `Ctrl+C` in that terminal to stop forwarding.
 
-### 3c. Fleet Manager Remote Desktop: a full Windows desktop
+### 4c. Fleet Manager Remote Desktop: a full Windows desktop
 
 Sometimes a GUI is easier, especially when learning. **IIS Manager** shows sites and app pools visually, and **Event Viewer** lets you browse logs.
 
@@ -277,7 +278,7 @@ Everything you see there, you'll also do with PowerShell, which is what scales t
 
 ---
 
-## Part 4: Your IIS troubleshooting toolkit (10 min)
+## Part 5: Your IIS troubleshooting toolkit
 
 These six checks follow the request path from Part A, from the outside in. Run each one now while the site is healthy, so you know what "normal" looks like. When something breaks, the difference jumps out.
 
@@ -338,7 +339,7 @@ Get-ChildItem "C:\inetpub\logs\LogFiles\W3SVC$id" | Sort-Object LastWriteTime | 
 ```
 Each site has a numeric ID, and its logs live in a folder named `W3SVC` plus that ID. The lines are space-separated, one per request, like an Ingress controller's access log; near the end are the **status** and **substatus**, e.g. `200 0` for success or `500 19` for a configuration error. IIS also buffers these, so new lines can take a minute to appear.
 
-**Event IDs worth recognizing** (you'll meet most of these in Part 5):
+**Event IDs worth recognizing** (you'll meet most of these in Part 6):
 
 | Log | Source | ID | Plain-English meaning |
 |---|---|---|---|
@@ -351,11 +352,11 @@ Each site has a numeric ID, and its logs live in a folder named `W3SVC` plus tha
 
 ---
 
-## Part 5: Break and fix (about 60 min)
+## Part 6: Break and fix
 
 **How each scenario works:**
 1. On **your workstation**, inject a fault with `./ssm-run.sh break <scenario>`. The break script hides its own errors on purpose, so its output only says "Fault injected."
-2. In a **Session Manager** PowerShell prompt, work through the Part 4 toolkit: what does the user see, is the app pool running, what do the logs say?
+2. In a **Session Manager** PowerShell prompt, work through the Part 5 toolkit: what does the user see, is the app pool running, what do the logs say?
 3. Decide on the cause and fix it, then confirm with `C:\lab\Test-Site.ps1`.
 
 Try each one before opening its solution. Each solution explains the diagnosis, every fix command, and the lesson. If you get completely stuck, `./ssm-run.sh setup` resets the lab.
@@ -575,7 +576,7 @@ C:\lab\Test-Site.ps1
 
 ---
 
-## Part 6: Scan for missing patches with Patch Manager (10 min)
+## Part 7: Scan for missing patches with Patch Manager
 
 ```bash
 ./ssm-run.sh patch-scan
@@ -610,7 +611,7 @@ Because the server was built from the latest published image, you may see **0 mi
 
 ---
 
-## Part 7: Clean up (5 min)
+## Part 8: Clean up
 
 ```bash
 terraform destroy        # type "yes"
