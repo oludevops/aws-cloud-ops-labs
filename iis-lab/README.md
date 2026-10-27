@@ -224,7 +224,7 @@ Now look around:
 ```powershell
 whoami
 ```
-Shows `nt authority\system`. Session Manager sessions run as **SYSTEM**, Windows' most powerful built-in account, roughly like root. That's why access to Session Manager must be tightly controlled with IAM.
+Shows `<computer-name>\ssm-user`. Session Manager sessions run as **`ssm-user`**, a local account the SSM Agent creates on first use and, on Windows, adds to the **Administrators** group. (Run Command, by contrast, runs scripts as **SYSTEM**, Windows' most powerful built-in account, roughly like root.) Both are highly privileged, which is why access to Session Manager and Run Command must be tightly controlled with IAM.
 
 ```powershell
 Import-Module WebAdministration
@@ -321,10 +321,14 @@ Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2; StartTime=(Get-D
 
 ```powershell
 netsh http flush logbuffer | Out-Null
-$log = Get-ChildItem C:\Windows\System32\LogFiles\HTTPERR\*.log | Sort-Object LastWriteTime | Select-Object -Last 1
-Get-Content $log.FullName -Tail 5
+$dir = 'C:\Windows\System32\LogFiles\HTTPERR'
+if (Test-Path $dir) {
+    Get-ChildItem "$dir\*.log" | Sort-Object LastWriteTime | Select-Object -Last 1 | Get-Content -Tail 5
+} else {
+    'No HTTPERR log yet: HTTP.sys has not rejected any requests on this server.'
+}
 ```
-Line by line: HTTP.sys buffers its log in memory, so the first line writes it to disk now (`Out-Null` hides the "OK" message). The second finds the newest log file. The third prints its last 5 lines, like `tail -5`. The **last word on each line is the reason**; `AppOffline` means the app pool wasn't running. On a healthy server the log may be empty or missing.
+Line by line: HTTP.sys buffers its log in memory, so the first line writes it to disk now (`Out-Null` hides the "OK" message). **HTTP.sys only creates the HTTPERR folder the first time it rejects a request**, so on a healthy server the folder may not exist at all. That's a good sign, and `Test-Path` (like `[ -e path ]` in bash) checks for it before reading. If it exists, the newest log file's last 5 lines are printed, like `tail -5`. The **last word on each line is the reason**; `AppOffline` means the app pool wasn't running.
 
 **6. What did IIS log?** Requests that *did* reach IIS go in the site's access log:
 
