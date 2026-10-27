@@ -1,0 +1,33 @@
+# Never commit these to a public repo
+
+# Terraform working files and provider downloads
+**/.terraform/
+
+# Terraform state: resource IDs, ARNs and sometimes secrets in plain text
+*.tfstate
+*.tfstate.*
+
+# Saved plans: can contain sensitive values
+tfplan
+*.tfplan
+
+# Backend settings: state bucket name, which includes your account ID
+backend.hcl
+
+# Private keys (the IIS lab writes iis-lab-key.pem)
+*.pem
+*.key
+
+# Lab output and logs (drift reports contain ARNs with your account ID)
+drift-report-*.txt
+plan.txt
+drift-cron.log
+crash.log
+crash.*.log
+
+# Archives used to copy the labs around
+*.tar.gz
+
+# Editor and OS clutter
+.vscode/
+.DS_Store

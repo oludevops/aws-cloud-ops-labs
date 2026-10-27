@@ -1,0 +1,59 @@
+# Nightly drift detection in GitHub Actions (optional, for reference).
+#
+# Authenticates to AWS with OIDC, so no AWS access keys are stored in GitHub.
+# Prerequisites: an IAM OIDC provider for token.actions.githubusercontent.com,
+# and a read-only role whose trust policy allows this repo. Store its ARN in
+# the repository variable AWS_DRIFT_ROLE_ARN. The job only needs read access,
+# because `terraform plan` never changes anything. That role must also be allowed
+# s3:GetObject and s3:ListBucket on the state bucket. The plan runs with
+# -lock=false, so the read-only role doesn't need to write a lock file.
+name: drift-detection
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # every day at 06:17 UTC
+  workflow_dispatch: {}  # allows a manual run from the Actions tab
+
+permissions:
+  id-token: write # required for OIDC
+  contents: read
+  issues: write   # so the job can open an issue when drift is found
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DRIFT_ROLE_ARN }}
+          aws-region: us-east-2
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false # keep real exit codes
+
+      # Connects to the same S3 state the lab uses (backend.hcl must be committed)
+      - run: terraform init -input=false -backend-config=backend.hcl
+
+      - name: Detect drift
+        id: drift
+        run: |
+          set +e
+          terraform plan -detailed-exitcode -input=false -no-color -lock=false > plan.txt
+          echo "exitcode=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Open an issue if drift was found
+        if: steps.drift.outputs.exitcode == '2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "Terraform drift detected $(date -u +%F)" \
+            --body "$(printf 'Nightly plan found differences.\n\n```\n%s\n```' "$(grep -E 'has changed|will be|must be|Plan:' plan.txt)")"
+
+      - name: Fail on error
+        if: steps.drift.outputs.exitcode == '1'
+        run: exit 1
