@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# Lab 3: Windows Server + IIS break/fix
+# Windows Server + IIS break/fix
 # State goes in the same S3 bucket as the drift lab, under a different key.
 # -----------------------------------------------------------------------------
 terraform {

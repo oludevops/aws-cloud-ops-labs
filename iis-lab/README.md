@@ -1,4 +1,4 @@
-# Lab 3: Windows Server and IIS break/fix, managed entirely through Systems Manager
+# Windows Server and IIS break/fix, managed entirely through Systems Manager
 
 **Time:** about 2½ hours, including reading  **Cost:** about 7 cents an hour while the server runs (Windows t3.medium, a 50 GB disk and a public IP). Destroy it at the end and the whole lab costs well under a dollar.  **Region:** us-east-2 (Ohio)
 
